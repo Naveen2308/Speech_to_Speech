@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech to Speech System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 600px;
+            margin: auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .chat-box {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            height: auto;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        .user-message {
+            background-color: #e1ffc7;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        .ai-message {
+            background-color: #d1e7ff;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 10px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .button-container {
+            display: flex;
+            justify-content: space-between;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speech to Speech System</h1>
+        <div class="chat-box" id="chatBox">
+            <!-- Chat messages will be appended here -->
+        </div>
+
+        <div class="button-container">
+            <button id="recordButton">Start Recording</button>
+            <button id="stopButton" disabled>Stop Recording</button>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+let mediaRecorder;
+let audioChunks = [];
+
+// Set initial button states
+document.getElementById('stopButton').style.backgroundColor = "#9ecdff";
+document.getElementById('stopButton').disabled = true;
+document.getElementById('recordButton').style.backgroundColor = "#007bff";
+
+// Function to update button states
+function updateButtonStates(isRecording) {
+    const recordButton = document.getElementById('recordButton');
+    const stopButton = document.getElementById('stopButton');
+
+    if (isRecording) {
+        recordButton.disabled = true;
+        recordButton.style.backgroundColor = "#9ecdff";
+        stopButton.disabled = false;
+        stopButton.style.backgroundColor = "#007bff";
+    } else {
+        recordButton.disabled = false;
+        recordButton.style.backgroundColor = "#007bff";
+        stopButton.disabled = true;
+        stopButton.style.backgroundColor = "#9ecdff";
+    }
+}
+
+// Start recording when the button is clicked
+document.getElementById('recordButton').onclick = async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = []; // Reset audio chunks
+
+        mediaRecorder.start();
+
+        mediaRecorder.ondataavailable = event => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            const formData = new FormData();
+            formData.append('audio', audioBlob);
+
+            try {
+                const response = await fetch('/process_audio', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error('Failed to process audio.');
+
+                const data = await response.json();
+                const userInput = data.response; // Store the transcribed text
+
+                // Append user message to chat box
+                appendMessage('User', userInput);
+
+                // Get AI response
+                const aiResponse = await fetch('/get_response', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input_text: userInput })
+                });
+
+                if (!aiResponse.ok) throw new Error('Failed to fetch AI response.');
+
+                const aiData = await aiResponse.json();
+                appendMessage('AI BOT', aiData.response, aiData.audio_path);
+
+            } catch (error) {
+                console.error("Error handling audio data:", error);
+                alert("An error occurred while processing the audio.");
+            }
+        };
+
+        // Update button states to recording
+        updateButtonStates(true);
+
+    } catch (error) {
+        console.error("Error accessing microphone:", error);
+        alert("Could not access the microphone. Please check your permissions.");
+    }
+};
+
+// Stop recording when the stop button is clicked
+document.getElementById('stopButton').onclick = () => {
+    if (mediaRecorder && mediaRecorder.state === "recording") {
+        mediaRecorder.stop();
+        updateButtonStates(false); // Update button states to not recording
+    } else {
+        console.warn("MediaRecorder is not in a recording state.");
+    }
+};
+
+// Function to append messages to the chat box
+function appendMessage(sender, message, audioPath = null) {
+    const chatContainer = document.getElementById('chatBox');
+
+    // Create a message div
+    const messageDiv = document.createElement('div');
+    messageDiv.classList.add(sender === 'AI BOT' ? 'ai-message' : 'user-message');
+
+    // Add the message text
+    const messageText = document.createElement('p');
+    messageText.textContent = message;
+    messageDiv.appendChild(messageText);
+
+    // If there's an audio path, add an audio player
+    if (audioPath) {
+    const audioPlayer = document.createElement('audio');
+    audioPlayer.controls = false;
+    audioPlayer.autoplay = true; // Enable autoplay
+    audioPlayer.src = audioPath;
+
+    // Create the play button
+    const playButton = document.createElement('button');
+    playButton.innerHTML = 'Repeat';
+    
+    // Play the audio when the button is clicked
+    playButton.onclick = function() {
+        audioPlayer.play();
+    };
+
+    // Append the audio player and the play button to the messageDiv
+    messageDiv.appendChild(audioPlayer);
+    messageDiv.appendChild(playButton);
+}
+
+
+
+    // Append the message div to the chat container
+    chatContainer.appendChild(messageDiv);
+
+    // Scroll to the bottom of the chat container
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+    </script>
+</body>
+</html>
